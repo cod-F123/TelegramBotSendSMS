@@ -1,0 +1,42 @@
+
+services:
+
+    
+
+  core:
+    build : .
+    volumes:
+      - ./core:/app
+
+    env_file:
+      - path : ".env"
+        required : true
+
+    command: python bot.py
+
+    networks:
+      - shared
+
+  worker:
+    build: .
+    volumes:
+      - ./core:/app
+
+
+    command: "celery -A tasks worker --loglevel=INFO"
+
+    
+    restart: unless-stopped
+
+    env_file:
+      - path : ".env"
+        required : true
+
+    networks:
+      - shared
+
+
+networks:
+  shared:
+    external: true
+    name: shared-net

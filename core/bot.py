@@ -5,13 +5,13 @@ from db.models import User, ExcelFile
 from decouple import config
 import logging
 from datetime import datetime
+import os
 
-from tasks import send_message_to_sms
+from tasks import send_message_to_sms, insert_number_to_excel
 
 BOT_TOKEN = config("BOT_TOKEN")
 
-GET_MESSAGE = 0
-GET_EXCELFILE = 1
+GET_MESSAGE ,GET_EXCELFILE, GET_ORTHER_NUBERS, GET_TEXT_FOR_OTHER_NUMBERS, GET_NUMBERS_AND_ADD_TO_EXCEL = range(5)
 
 # Enable logging
 logging.basicConfig(
@@ -31,7 +31,7 @@ async def start(update:Update, context:ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(update.effective_chat.id, "دستور نامعتبر")
         return
 
-    await context.bot.send_message(update.effective_chat.id,"راهنما استفاده :\n/update_numbers : آپدیت لیست شماره ها\n/send_sms : ارسال پیامک")
+    await context.bot.send_message(update.effective_chat.id,"راهنما استفاده :\n/update_numbers : آپدیت لیست شماره ها\n/add_number : اضافه کردن شماره به اکسل\n/send_sms : ارسال پیامک\n\nبرای خروج از هر پروسه [/cancel] را ارسال کنید.")
     
     
 
@@ -54,11 +54,18 @@ async def get_text_handler(update:Update, context:ContextTypes.DEFAULT_TYPE):
 
     text = update.message.text
 
-    logger.log(logging.INFO, "Start to send SMS")
-
     excel_files = ExcelFile.select().order_by(ExcelFile.created_at.desc())
 
     if len(excel_files) > 0:
+
+        if not os.path.exists(excel_files[0].path):
+            
+            await update.message.reply_text("فایل اکسل وجود ندارد لطفا مجدد فایل اکسل را آپلود کنید")
+
+            return ConversationHandler.END
+
+        logger.log(logging.INFO, "Start to send SMS")
+
         await update.message.reply_text("شروع ارسال")
 
         send_message_to_sms.delay(message=text, excel_path = excel_files[0].path,chat_id= update.effective_chat.id)
@@ -71,7 +78,7 @@ async def get_text_handler(update:Update, context:ContextTypes.DEFAULT_TYPE):
 
 
 
-async def update_numbers_handler(update: Update, context:ContextTypes.DEFAULT_TYPE):
+async def update_excelfile_handler(update: Update, context:ContextTypes.DEFAULT_TYPE):
 
     user = User.get_or_create(chat_id = update.effective_chat.id)[0]
 
@@ -108,9 +115,58 @@ async def get_excelfile_handler(update:Update, context:ContextTypes.DEFAULT_TYPE
     return ConversationHandler.END
 
 
-async def cancel(update:Update, context:ContextTypes.DEFAULT_TYPE):
+
+async def add_numbers_to_excelfile_handler(update:Update, context:ContextTypes.DEFAULT_TYPE):
+
+    user = User.get_or_create(chat_id = update.effective_chat.id)[0]
+
+    if not user.is_admin:
+
+        await update.message.reply_text("دستور نامعتبر")
+
+        return ConversationHandler.END
+    
+    excel_files = ExcelFile.select().order_by(ExcelFile.created_at.desc())
+
+    if len(excel_files) > 0:
+
+        if not os.path.exists(excel_files[0].path):
+            
+            await update.message.reply_text("فایل اکسل وجود ندارد لطفا مجدد فایل اکسل را آپلود کنید")
+
+            return ConversationHandler.END
+
+        await update.message.reply_text("[اضافه کردن شماره]\n\nبرای اضاف کردن شماره یا شماره هارو ارسال کنید\nبرای ارسال چند شماره آنهارا با  '-' جدا کنید \nبرای مثال  : \n\t9976543210 - 90123456789 - 9110000000")
+        return GET_NUMBERS_AND_ADD_TO_EXCEL
+
+    else:
+        await update.message.reply_text("فایل اکسلی برای اضافه کردن شماره یافت نشد.\nابتدا فایل اکسل را اپلود کنید\n /update_numbers")
+        return ConversationHandler.END
+    
+    
+
+
+async def get_numbers_and_add_to_excel_handler(update:Update, context:ContextTypes.DEFAULT_TYPE):
+    
+    logger.log(logging.INFO, "Start to Add Number or Numbers to last Excel.")
+
+    numbers_text = update.message.text
+    numbers = numbers_text.split("-")
+
+    excel_files = ExcelFile.select().order_by(ExcelFile.created_at.desc())
+
+    insert_number_to_excel.delay(numbers, excel_path = excel_files[0].path, chat_id=update.effective_chat.id)
+
 
     return ConversationHandler.END
+        
+
+async def cancel(update:Update, context:ContextTypes.DEFAULT_TYPE):
+
+    await update.message.reply_text("پروسه توسط شما کنسل شد")
+
+    return ConversationHandler.END
+
 
 def main():
 
@@ -125,10 +181,11 @@ def main():
         app.add_handler(CommandHandler(["start", "help"], start))
 
         app.add_handler(ConversationHandler(
-            [CommandHandler(["update_numbers"], update_numbers_handler), CommandHandler("send_sms", send_sms_handler)],
+            [CommandHandler(["update_numbers"], update_excelfile_handler), CommandHandler("send_sms", send_sms_handler), CommandHandler(["add_number"], add_numbers_to_excelfile_handler)],
             states= {
                 GET_MESSAGE : [MessageHandler(filters.TEXT  & ~filters.COMMAND, get_text_handler)],
-                GET_EXCELFILE : [MessageHandler(filters.Document.ALL, get_excelfile_handler)]
+                GET_EXCELFILE : [MessageHandler(filters.Document.ALL, get_excelfile_handler)],
+                GET_NUMBERS_AND_ADD_TO_EXCEL : [MessageHandler(filters.TEXT & ~filters.COMMAND, get_numbers_and_add_to_excel_handler)]
             },
             fallbacks=[CommandHandler("cancel", cancel)]
         ))

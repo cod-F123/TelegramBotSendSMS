@@ -46,6 +46,9 @@ app.conf.task_reject_on_worker_lost = True
 app.conf.worker_prefetch_multiplier = 1    
 
 
+PRIMARY_NUMBERS = config("PRIMARY_NUMBERS", cast=lambda nms: [num.strip() for num in nms.split(",")], default="")
+
+
 def send_payamak(message, number):
 
     data = {
@@ -68,17 +71,30 @@ def read_excle_and_send_message(message, excel_path):
     ws = wb.active
 
     sended_successfuly = []
+    unsuccess_sended = []
 
     for row in range(0, ws.max_row):
         for col in ws.iter_cols(1, ws.max_column):
-            number = str(int(col[row].value))
+            number = str(col[row].value)
 
             status = send_payamak(message, "98"+number )
 
             if status.get("StrRetStatus") == "Ok":
-                sended_successfuly.append("98" +number)
+                sended_successfuly.append("98" +number) 
+            
+            else:
+                unsuccess_sended.append(number)
 
-    return sended_successfuly
+    for num in PRIMARY_NUMBERS:
+        status = send_payamak(message,num)
+
+        if status.get("StrRetStatus") == "Ok":
+            sended_successfuly.append(num)
+
+        else:
+            unsuccess_sended.append(num)
+
+    return {"success_fuly":sended_successfuly,"unsuccess":unsuccess_sended}
 
 
 async def send_message_to_telegram(message, chat_id):
@@ -101,9 +117,9 @@ async def send_message_to_telegram(message, chat_id):
 def send_message_to_sms(self, message, excel_path, chat_id):
     try:
         
-        list_of_sended = read_excle_and_send_message(message, excel_path=excel_path)
+        result  = read_excle_and_send_message(message, excel_path=excel_path)
 
-        text = "پیام با موفقیت به شماره های زیر ارسال شد\n" + "\n".join(list_of_sended)
+        text = f"به {len(result.get('success_fuly'))} با موفقیت ارسال شد\n به {len(result.get('unsuccess'))} ارسال نشد"
 
         asyncio.run(send_message_to_telegram(text,chat_id=chat_id))
 

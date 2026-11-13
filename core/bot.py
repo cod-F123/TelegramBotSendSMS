@@ -7,11 +7,11 @@ import logging
 from datetime import datetime
 import os
 
-from tasks import send_message_to_sms, insert_number_to_excel
+from tasks import send_message_to_sms, insert_number_to_excel, send_quick_sms
 
 BOT_TOKEN = config("BOT_TOKEN")
 
-GET_MESSAGE ,GET_EXCELFILE, GET_ORTHER_NUBERS, GET_TEXT_FOR_OTHER_NUMBERS, GET_NUMBERS_AND_ADD_TO_EXCEL = range(5)
+GET_MESSAGE ,GET_EXCELFILE, GET_NUMBERS_FOR_QUICK_SEND, GET_TEXT_FOR_QUICK_SEND, GET_NUMBERS_AND_ADD_TO_EXCEL = range(5)
 
 # Enable logging
 logging.basicConfig(
@@ -31,7 +31,7 @@ async def start(update:Update, context:ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(update.effective_chat.id, "دستور نامعتبر")
         return
 
-    await context.bot.send_message(update.effective_chat.id,"راهنما استفاده :\n/update_numbers : آپدیت لیست شماره ها\n/add_number : اضافه کردن شماره به اکسل\n/send_sms : ارسال پیامک\n\nبرای خروج از هر پروسه [/cancel] را ارسال کنید.")
+    await context.bot.send_message(update.effective_chat.id,"راهنما استفاده :\n/update_numbers : آپدیت لیست شماره ها\n/add_number : اضافه کردن شماره به اکسل\n/send_sms : ارسال پیامک\n/quick_send ارسال سریع\n\nبرای خروج از هر پروسه [/cancel] را ارسال کنید.")
     
     
 
@@ -159,6 +159,49 @@ async def get_numbers_and_add_to_excel_handler(update:Update, context:ContextTyp
 
 
     return ConversationHandler.END
+
+
+async def send_quick_message_handler(update: Update, context:ContextTypes.DEFAULT_TYPE):
+
+    user = User.get_or_create(chat_id = update.effective_chat.id)[0]
+
+    if not user.is_admin:
+
+        await update.message.reply_text("دستور نامعتبر")
+
+        return ConversationHandler.END 
+    
+    await update.message.reply_text("[ارسال سریع]\nشماره  یا شماره های مورد نظر را ارسال کنید\nبرای ارسال شماره ها آنهارا با  '-' جدا کنید\nمثال : \n\t9976543210 - 90123456789 - 9110000000")
+
+    return GET_NUMBERS_FOR_QUICK_SEND
+
+
+async def get_quick_numbers_handler(update:Update, context:ContextTypes.DEFAULT_TYPE):
+
+    numbers_text = update.message.text
+    numbers = numbers_text.split("-")
+
+    context.user_data["quick_send_numbers"] = numbers
+
+    await update.message.reply_text("متن پیام را ارسال کنید")
+    return GET_TEXT_FOR_QUICK_SEND
+
+
+async def get_quick_send_text_handler(update:Update, context:ContextTypes.DEFAULT_TYPE):
+
+    numbers = context.user_data.get("quick_send_numbers", [])
+
+    message = update.message.text
+
+
+    await update.message.reply_text("شروع ارسال")
+
+    send_quick_sms.delay(numbers = numbers, message = message, chat_id= update.effective_chat.id)
+
+
+    context.user_data.pop("quick_send_numbers",None)
+
+    return ConversationHandler.END
         
 
 async def cancel(update:Update, context:ContextTypes.DEFAULT_TYPE):
@@ -181,11 +224,13 @@ def main():
         app.add_handler(CommandHandler(["start", "help"], start))
 
         app.add_handler(ConversationHandler(
-            [CommandHandler(["update_numbers"], update_excelfile_handler), CommandHandler("send_sms", send_sms_handler), CommandHandler(["add_number"], add_numbers_to_excelfile_handler)],
+            [CommandHandler(["update_numbers"], update_excelfile_handler), CommandHandler("send_sms", send_sms_handler), CommandHandler(["add_number"], add_numbers_to_excelfile_handler), CommandHandler(["quick_send"], send_quick_message_handler)],
             states= {
                 GET_MESSAGE : [MessageHandler(filters.TEXT  & ~filters.COMMAND, get_text_handler)],
                 GET_EXCELFILE : [MessageHandler(filters.Document.ALL, get_excelfile_handler)],
-                GET_NUMBERS_AND_ADD_TO_EXCEL : [MessageHandler(filters.TEXT & ~filters.COMMAND, get_numbers_and_add_to_excel_handler)]
+                GET_NUMBERS_AND_ADD_TO_EXCEL : [MessageHandler(filters.TEXT & ~filters.COMMAND, get_numbers_and_add_to_excel_handler)],
+                GET_NUMBERS_FOR_QUICK_SEND : [MessageHandler(filters.TEXT & ~filters.COMMAND, get_quick_numbers_handler)],
+                GET_TEXT_FOR_QUICK_SEND : [MessageHandler(filters.TEXT & ~filters.COMMAND, get_quick_send_text_handler)]
             },
             fallbacks=[CommandHandler("cancel", cancel)]
         ))

@@ -3,7 +3,7 @@ from decouple import config
 import asyncio
 import logging
 
-from utils import send_message_to_numbers, add_number_to_excel, send_message_to_telegram
+from utils import send_message_to_numbers, add_number_to_excel, send_message_to_telegram, send_quick_message
 
 
 
@@ -77,6 +77,26 @@ def insert_number_to_excel(self, numbers, excel_path, chat_id):
 
     try:
         asyncio.run(send_message_to_telegram(text, chat_id))
+
+    except Exception as exc:
+        logger.exception("Error sending Telegram notification")
+
+
+@app.task(bind=True, max_retries=5)
+def send_quick_sms(self, numbers, message, chat_id):
+
+    try:
+        
+        result  = send_quick_message(numbers, message)
+
+    except Exception as exc:
+        logger.log(logging.ERROR, f"Error : {exc}")
+        raise self.retry(exc=exc)
+
+    text = f"به {result.get('success_fully_count')} با موفقیت ارسال شد\n به {result.get('unsuccess_fully_count')} ارسال نشد"
+
+    try:
+        asyncio.run(send_message_to_telegram(text,chat_id=chat_id))
 
     except Exception as exc:
         logger.exception("Error sending Telegram notification")

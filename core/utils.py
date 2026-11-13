@@ -102,6 +102,25 @@ def add_number_to_excel(new_numbers: list[str], excel_path) -> list[str]:
     return avable_numbers
 
 
+def send_quick_message(numbers: list[str],message: str)->dict:
+
+    success_fully_sended_count = 0
+    
+    for number in numbers:
+
+        status_number = send_payamak(message, "98s"+number)
+
+        if status_number.get("StrRetStatus") == "Ok":
+            success_fully_sended_count += 1
+    
+
+    return {
+        "success_fully_count" : success_fully_sended_count,
+        "unsuccess_fully_count" : len(numbers) - success_fully_sended_count
+    }
+
+
+
 
 async def send_message_to_telegram(message, chat_id):
 
